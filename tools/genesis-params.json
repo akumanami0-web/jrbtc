@@ -1,0 +1,11 @@
+{
+  "pszTimestamp": "22/Jul/2026 New PM Andy Burnham enters Downing Street; everyone starts somewhere",
+  "genesisPubkey": "049dde9f6fe0117f244cd2c7fd9d56ee3ce7a4074c1a6a2d43be78bd8c8ab7518355fb1d742fbc87f93a26fe6f6ea19f4670bda6c35551cec7f682b73db4de95cf",
+  "nTime": 1784700467,
+  "nBits": "0x1e0ffff0",
+  "nNonce": 1316746,
+  "nVersion": 1,
+  "reward": "50 JrBTC",
+  "genesisHash": "000000a9896e6f1c0d6962f5850ac81c8149ecd7323989c3ed685ff47b392573",
+  "merkleRoot": "9330e6dd782eb7c9351966a4e7f3f46172eb401c98d4c3e9e82994f8d6ee5b64"
+}

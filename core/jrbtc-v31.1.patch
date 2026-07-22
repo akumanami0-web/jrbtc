@@ -1,0 +1,302 @@
+diff --git a/src/chainparamsbase.cpp b/src/chainparamsbase.cpp
+index d816d1a..170ad54 100644
+--- a/src/chainparamsbase.cpp
++++ b/src/chainparamsbase.cpp
+@@ -41,7 +41,8 @@ std::unique_ptr<CBaseChainParams> CreateBaseChainParams(const ChainType chain)
+ {
+     switch (chain) {
+     case ChainType::MAIN:
+-        return std::make_unique<CBaseChainParams>("", 8332);
++        // JrBTC mainnet RPC port
++        return std::make_unique<CBaseChainParams>("", 9332);
+     case ChainType::TESTNET:
+         return std::make_unique<CBaseChainParams>("testnet3", 18332);
+     case ChainType::TESTNET4:
+diff --git a/src/consensus/params.h b/src/consensus/params.h
+index 93ee071..a64377e 100644
+--- a/src/consensus/params.h
++++ b/src/consensus/params.h
+@@ -6,6 +6,7 @@
+ #ifndef BITCOIN_CONSENSUS_PARAMS_H
+ #define BITCOIN_CONSENSUS_PARAMS_H
+ 
++#include <consensus/amount.h>
+ #include <script/verify_flags.h>
+ #include <uint256.h>
+ 
+@@ -84,6 +85,12 @@ struct BIP9Deployment {
+ struct Params {
+     uint256 hashGenesisBlock;
+     int nSubsidyHalvingInterval;
++    /**
++     * JrBTC: one-time block-1 founder/treasury reserve subsidy, in base units
++     * (0 = none). A disclosed on-chain allocation; the halving interval is
++     * sized so that reserve + all future subsidies stay below MAX_MONEY.
++     */
++    CAmount nFounderReserveAmount{0};
+     /**
+      * Hashes of blocks that
+      * - are known to be consensus valid, and
+diff --git a/src/kernel/chainparams.cpp b/src/kernel/chainparams.cpp
+index 64809a7..197d6cf 100644
+--- a/src/kernel/chainparams.cpp
++++ b/src/kernel/chainparams.cpp
+@@ -81,19 +81,24 @@ public:
+         m_chain_type = ChainType::MAIN;
+         consensus.signet_blocks = false;
+         consensus.signet_challenge.clear();
+-        consensus.nSubsidyHalvingInterval = 210000;
+-        consensus.script_flag_exceptions.emplace( // BIP16 exception
+-            uint256{"00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22"}, SCRIPT_VERIFY_NONE);
+-        consensus.script_flag_exceptions.emplace( // Taproot exception
+-            uint256{"0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad"}, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS);
+-        consensus.BIP34Height = 227931;
+-        consensus.BIP34Hash = uint256{"000000000000024b89b42a942fe0d9fea3bb44ab7bd1b19115dd6a759c0808b8"};
+-        consensus.BIP65Height = 388381; // 000000000000000004c2b624ed5d7756c508d90fd0da2c7c679febfa6c4735f0
+-        consensus.BIP66Height = 363725; // 00000000000000000379eaa19dce8c9b722d46ae6a57c2f1a988119488b50931
+-        consensus.CSVHeight = 419328; // 000000000000000004a1b34462cb8aeebd5799177f7a29cf28f2d1961716b5b5
+-        consensus.SegwitHeight = 481824; // 0000000000000000001c8018d9cb3b742ef25114f27563e3fc4a1902167f9893
+-        consensus.MinBIP9WarningHeight = 483840; // segwit activation height + miner confirmation window
+-        consensus.powLimit = uint256{"00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
++        // JrBTC monetary policy: block 1 pays a one-time, publicly disclosed
++        // 2,000,000 JrBTC founder/treasury reserve; every later block pays the
++        // standard 50-coin subsidy halving every 190,000 blocks. Total:
++        // 2,000,000 + ~18,999,999.98 mined = ~20,999,999.98 < 21M MAX_MONEY.
++        consensus.nSubsidyHalvingInterval = 190000;
++        consensus.nFounderReserveAmount = 2'000'000 * COIN;
++        // JrBTC: fresh chain — every soft fork is active from the start,
++        // no historical script exceptions exist.
++        consensus.BIP34Height = 1;
++        consensus.BIP34Hash = uint256{};
++        consensus.BIP65Height = 1;
++        consensus.BIP66Height = 1;
++        consensus.CSVHeight = 1;
++        consensus.SegwitHeight = 1;
++        consensus.MinBIP9WarningHeight = 0;
++        // JrBTC: relaxed pow floor so a young network can find blocks;
++        // identical SHA-256d PoW and retarget rules otherwise.
++        consensus.powLimit = uint256{"00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
+         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+         consensus.nPowTargetSpacing = 10 * 60;
+         consensus.fPowAllowMinDifficultyBlocks = false;
+@@ -106,95 +111,66 @@ public:
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1815; // 90%
+         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
+ 
+-        // Deployment of Taproot (BIPs 340-342)
++        // Deployment of Taproot (BIPs 340-342) — JrBTC: active from genesis
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1619222400; // April 24th, 2021
+-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = 1628640000; // August 11th, 2021
+-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632; // Approximately November 12th, 2021
++        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
++        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
++        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 1815; // 90%
+         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 2016;
+ 
+-        consensus.nMinimumChainWork = uint256{"0000000000000000000000000000000000000001128750f82f4c366153a3a030"};
+-        consensus.defaultAssumeValid = uint256{"00000000000000000000ccebd6d74d9194d8dcdc1d177c478e094bfad51ba5ac"}; // 938343
++        // JrBTC: new chain — no minimum work, every block fully validated.
++        consensus.nMinimumChainWork = uint256{};
++        consensus.defaultAssumeValid = uint256{};
+ 
+         /**
+          * The message start string is designed to be unlikely to occur in normal data.
+          * The characters are rarely used upper ASCII, not valid as UTF-8, and produce
+          * a large 32-bit integer with any alignment.
+          */
+-        pchMessageStart[0] = 0xf9;
+-        pchMessageStart[1] = 0xbe;
+-        pchMessageStart[2] = 0xb4;
+-        pchMessageStart[3] = 0xd9;
+-        nDefaultPort = 8333;
++        // JrBTC / Junior Network message start: 0xfa 'J' 'R' 0xda
++        pchMessageStart[0] = 0xfa;
++        pchMessageStart[1] = 0x4a;
++        pchMessageStart[2] = 0x52;
++        pchMessageStart[3] = 0xda;
++        nDefaultPort = 9333;
+         nPruneAfterHeight = 100000;
+-        m_assumed_blockchain_size = 856;
+-        m_assumed_chain_state_size = 14;
+-
+-        genesis = CreateGenesisBlock(1231006505, 2083236893, 0x1d00ffff, 1, 50 * COIN);
++        m_assumed_blockchain_size = 1;
++        m_assumed_chain_state_size = 1;
++
++        // JrBTC genesis — mined 22 Jul 2026, zero premine (output unspendable
++        // like Bitcoin's own genesis). Parameters ground by tools/genesis-grind.mjs.
++        const char* pszJrTimestamp = "22/Jul/2026 New PM Andy Burnham enters Downing Street; everyone starts somewhere";
++        const CScript jrGenesisOutputScript = CScript() << "049dde9f6fe0117f244cd2c7fd9d56ee3ce7a4074c1a6a2d43be78bd8c8ab7518355fb1d742fbc87f93a26fe6f6ea19f4670bda6c35551cec7f682b73db4de95cf"_hex << OP_CHECKSIG;
++        genesis = CreateGenesisBlock(pszJrTimestamp, jrGenesisOutputScript, 1784700467, 1316746, 0x1e0ffff0, 1, 50 * COIN);
+         consensus.hashGenesisBlock = genesis.GetHash();
+-        assert(consensus.hashGenesisBlock == uint256{"000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"});
+-        assert(genesis.hashMerkleRoot == uint256{"4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"});
++        assert(consensus.hashGenesisBlock == uint256{"000000a9896e6f1c0d6962f5850ac81c8149ecd7323989c3ed685ff47b392573"});
++        assert(genesis.hashMerkleRoot == uint256{"9330e6dd782eb7c9351966a4e7f3f46172eb401c98d4c3e9e82994f8d6ee5b64"});
+ 
+-        // Note that of those which support the service bits prefix, most only support a subset of
+-        // possible options.
+-        // This is fine at runtime as we'll fall back to using them as an addrfetch if they don't support the
+-        // service bits we want, but we should get them updated to support all service bits wanted by any
+-        // release ASAP to avoid it where possible.
+-        vSeeds.emplace_back("seed.bitcoin.sipa.be."); // Pieter Wuille, only supports x1, x5, x9, and xd
+-        vSeeds.emplace_back("dnsseed.bluematt.me."); // Matt Corallo, only supports x9
+-        vSeeds.emplace_back("seed.bitcoin.jonasschnelli.ch."); // Jonas Schnelli, only supports x1, x5, x9, and xd
+-        vSeeds.emplace_back("seed.btc.petertodd.net."); // Peter Todd, only supports x1, x5, x9, and xd
+-        vSeeds.emplace_back("seed.bitcoin.sprovoost.nl."); // Sjors Provoost
+-        vSeeds.emplace_back("dnsseed.emzy.de."); // Stephan Oeste
+-        vSeeds.emplace_back("seed.bitcoin.wiz.biz."); // Jason Maurice
+-        vSeeds.emplace_back("seed.mainnet.achownodes.xyz."); // Ava Chow, only supports x1, x5, x9, x49, x809, x849, xd, x400, x404, x408, x448, xc08, xc48, x40c
+-
+-        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
+-        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
+-        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,128);
++        // JrBTC: no DNS seeds yet — bootstrap with -addnode/-connect until
++        // community seed infrastructure exists.
++        vSeeds.clear();
++
++        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,43);  // 'J…'
++        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,44);
++        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,171);
+         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
+         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
+ 
+-        bech32_hrp = "bc";
++        bech32_hrp = "jr";
+ 
+-        vFixedSeeds = std::vector<uint8_t>(std::begin(chainparams_seed_main), std::end(chainparams_seed_main));
++        vFixedSeeds.clear();
+ 
+         fDefaultConsistencyChecks = false;
+         m_is_mockable_chain = false;
+ 
+-        m_assumeutxo_data = {
+-            {
+-                .height = 840'000,
+-                .hash_serialized = AssumeutxoHash{uint256{"a2a5521b1b5ab65f67818e5e8eccabb7171a517f9e2382208f77687310768f96"}},
+-                .m_chain_tx_count = 991032194,
+-                .blockhash = uint256{"0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5"},
+-            },
+-            {
+-                .height = 880'000,
+-                .hash_serialized = AssumeutxoHash{uint256{"dbd190983eaf433ef7c15f78a278ae42c00ef52e0fd2a54953782175fbadcea9"}},
+-                .m_chain_tx_count = 1145604538,
+-                .blockhash = uint256{"000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880"},
+-            },
+-            {
+-                .height = 910'000,
+-                .hash_serialized = AssumeutxoHash{uint256{"4daf8a17b4902498c5787966a2b51c613acdab5df5db73f196fa59a4da2f1568"}},
+-                .m_chain_tx_count = 1226586151,
+-                .blockhash = uint256{"0000000000000000000108970acb9522ffd516eae17acddcb1bd16469194a821"},
+-            },
+-            {
+-                .height = 935'000,
+-                .hash_serialized = AssumeutxoHash{uint256{"e4b90ef9eae834f56c4b64d2d50143cee10ad87994c614d7d04125e2a6025050"}},
+-                .m_chain_tx_count = 1305397408,
+-                .blockhash = uint256{"0000000000000000000147034958af1652b2b91bba607beacc5e72a56f0fb5ee"},
+-            }
+-        };
++        m_assumeutxo_data = {};
+ 
+         chainTxData = ChainTxData{
+-            // Data from RPC: getchaintxstats 4096 00000000000000000000ccebd6d74d9194d8dcdc1d177c478e094bfad51ba5ac
+-            .nTime    = 1772055173,
+-            .tx_count = 1315805869,
+-            .dTxRate  = 5.40111006496122,
++            // JrBTC genesis — chain starts empty.
++            .nTime    = 1784700467,
++            .tx_count = 1,
++            .dTxRate  = 0,
+         };
+ 
+         // Generated by headerssync-params.py on 2026-02-25.
+@@ -289,13 +265,13 @@ public:
+                 .height = 2'500'000,
+                 .hash_serialized = AssumeutxoHash{uint256{"f841584909f68e47897952345234e37fcd9128cd818f41ee6c3ca68db8071be7"}},
+                 .m_chain_tx_count = 66484552,
+-                .blockhash = uint256{"0000000000000093bcb68c03a9a168ae252572d348a2eaeba2cdf9231d73206f"},
++                .blockhash = uint256::FromHex("0000000000000093bcb68c03a9a168ae252572d348a2eaeba2cdf9231d73206f").value(), // MSVC 17.x consteval workaround
+             },
+             {
+                 .height = 4'840'000,
+                 .hash_serialized = AssumeutxoHash{uint256{"ce6bb677bb2ee9789c4a1c9d73e6683c53fc20e8fdbedbdaaf468982a0c8db2a"}},
+                 .m_chain_tx_count = 536078574,
+-                .blockhash = uint256{"00000000000000f4971a7fb37fbdff89315b69a2e1920c467654a382f0d64786"},
++                .blockhash = uint256::FromHex("00000000000000f4971a7fb37fbdff89315b69a2e1920c467654a382f0d64786").value(), // MSVC 17.x consteval workaround
+             }
+         };
+ 
+@@ -402,13 +378,13 @@ public:
+                 .height = 90'000,
+                 .hash_serialized = AssumeutxoHash{uint256{"784fb5e98241de66fdd429f4392155c9e7db5c017148e66e8fdbc95746f8b9b5"}},
+                 .m_chain_tx_count = 11347043,
+-                .blockhash = uint256{"0000000002ebe8bcda020e0dd6ccfbdfac531d2f6a81457191b99fc2df2dbe3b"},
++                .blockhash = uint256::FromHex("0000000002ebe8bcda020e0dd6ccfbdfac531d2f6a81457191b99fc2df2dbe3b").value(), // MSVC 17.x consteval workaround
+             },
+             {
+                 .height = 120'000,
+                 .hash_serialized = AssumeutxoHash{uint256{"10b05d05ad468d0971162e1b222a4aa66caca89da2bb2a93f8f37fb29c4794b0"}},
+                 .m_chain_tx_count = 14141057,
+-                .blockhash = uint256{"000000000bd2317e51b3c5794981c35ba894ce27d3e772d5c39ecd9cbce01dc8"},
++                .blockhash = uint256::FromHex("000000000bd2317e51b3c5794981c35ba894ce27d3e772d5c39ecd9cbce01dc8").value(), // MSVC 17.x consteval workaround
+             }
+         };
+ 
+@@ -523,13 +499,13 @@ public:
+                 .height = 160'000,
+                 .hash_serialized = AssumeutxoHash{uint256{"fe0a44309b74d6b5883d246cb419c6221bcccf0b308c9b59b7d70783dbdf928a"}},
+                 .m_chain_tx_count = 2289496,
+-                .blockhash = uint256{"0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c"},
++                .blockhash = uint256::FromHex("0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c").value(), // MSVC 17.x consteval workaround
+             },
+             {
+                 .height = 290'000,
+                 .hash_serialized = AssumeutxoHash{uint256{"97267e000b4b876800167e71b9123f1529d13b14308abec2888bbd2160d14545"}},
+                 .m_chain_tx_count = 28547497,
+-                .blockhash = uint256{"0000000577f2741bb30cd9d39d6d71b023afbeb9764f6260786a97969d5c9ac0"},
++                .blockhash = uint256::FromHex("0000000577f2741bb30cd9d39d6d71b023afbeb9764f6260786a97969d5c9ac0").value(), // MSVC 17.x consteval workaround
+             }
+         };
+ 
+@@ -648,21 +624,21 @@ public:
+                 .height = 110,
+                 .hash_serialized = AssumeutxoHash{uint256{"b952555c8ab81fec46f3d4253b7af256d766ceb39fb7752b9d18cdf4a0141327"}},
+                 .m_chain_tx_count = 111,
+-                .blockhash = uint256{"6affe030b7965ab538f820a56ef56c8149b7dc1d1c144af57113be080db7c397"},
++                .blockhash = uint256::FromHex("6affe030b7965ab538f820a56ef56c8149b7dc1d1c144af57113be080db7c397").value(), // MSVC 17.x consteval workaround
+             },
+             {
+                 // For use by fuzz target src/test/fuzz/utxo_snapshot.cpp
+                 .height = 200,
+                 .hash_serialized = AssumeutxoHash{uint256{"17dcc016d188d16068907cdeb38b75691a118d43053b8cd6a25969419381d13a"}},
+                 .m_chain_tx_count = 201,
+-                .blockhash = uint256{"385901ccbd69dff6bbd00065d01fb8a9e464dede7cfe0372443884f9b1dcf6b9"},
++                .blockhash = uint256::FromHex("385901ccbd69dff6bbd00065d01fb8a9e464dede7cfe0372443884f9b1dcf6b9").value(), // MSVC 17.x consteval workaround
+             },
+             {
+                 // For use by test/functional/feature_assumeutxo.py and test/functional/tool_bitcoin_chainstate.py
+                 .height = 299,
+                 .hash_serialized = AssumeutxoHash{uint256{"d2b051ff5e8eef46520350776f4100dd710a63447a8e01d917e92e79751a63e2"}},
+                 .m_chain_tx_count = 334,
+-                .blockhash = uint256{"7cc695046fec709f8c9394b6f928f81e81fd3ac20977bb68760fa1faa7916ea2"},
++                .blockhash = uint256::FromHex("7cc695046fec709f8c9394b6f928f81e81fd3ac20977bb68760fa1faa7916ea2").value(), // MSVC 17.x consteval workaround
+             },
+         };
+ 
+diff --git a/src/validation.cpp b/src/validation.cpp
+index d3cabe4..9fe335c 100644
+--- a/src/validation.cpp
++++ b/src/validation.cpp
+@@ -1842,6 +1842,10 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
+ 
+ CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
+ {
++    // JrBTC: block 1 pays the disclosed founder/treasury reserve.
++    if (nHeight == 1 && consensusParams.nFounderReserveAmount > 0) {
++        return consensusParams.nFounderReserveAmount;
++    }
+     int halvings = nHeight / consensusParams.nSubsidyHalvingInterval;
+     // Force block reward to zero when right shift is undefined.
+     if (halvings >= 64)

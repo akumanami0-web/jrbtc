@@ -1,0 +1,19 @@
+# Local node data & keys — NEVER publish
+*.cookie
+wallet.dat
+wallets/
+jrbtc-data/
+**/data/
+.mining-address
+
+# Prebuilt binaries ship via GitHub Releases, not the repo
+dist/JrBTC-portable/bin/
+*.exe
+*.dll
+
+# Local runtime state
+demo/.demo-data/
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
